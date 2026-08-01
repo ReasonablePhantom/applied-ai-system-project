@@ -5,7 +5,18 @@
 import logging
 import os
 
+from dotenv import load_dotenv
 from google import genai
+
+# Loads .env into the process environment. Without this, python-dotenv
+# being in requirements.txt does nothing on its own — os.getenv() only ever
+# reads real environment variables, so a correctly-filled-in .env file is
+# silently ignored unless something calls load_dotenv() first. Doing it
+# here (module import time, before GEMINI_MODEL_NAME / GeminiClient read
+# any env vars) means every entry point that imports this module — main.py,
+# evaluation.py, tests — gets .env loaded automatically, with no risk of a
+# call site forgetting to do it.
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
