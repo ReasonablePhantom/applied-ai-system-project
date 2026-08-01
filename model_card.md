@@ -54,12 +54,10 @@ user:
    citation. Malformed output is rejected outright.
 2. **Grounding check** (`reliability/grounding_checker.py`) — the cited
    source must be one of the documents actually retrieved for this
-   question, and the explanation's wording must substantially overlap with
-   the retrieved reference text (not just assert a conclusion). This is a
-   simple keyword-overlap heuristic, not semantic entailment — it catches
-   answers that ignore the retrieved context entirely, but it will not
-   catch a subtle factual error stated in vocabulary that happens to overlap
-   the source text.
+   question, and the explanation's content-word overlap with the retrieved
+   reference text must clear a threshold (not just assert a conclusion).
+   This is a keyword-overlap heuristic, not semantic entailment — see
+   "Known Limitations" below for what it does and doesn't catch.
 
 If either check fails, the agent discards the draft and asks the LLM to try
 again, up to `max_generation_attempts` (default 3). If no attempt passes
@@ -67,6 +65,26 @@ after that many tries, the agent reports failure explicitly rather than
 showing an ungrounded question. The same grounding check applies to
 answer-grading feedback; a failed check there falls back to the question's
 own explanation, which is already known to have passed grounding.
+
+### Confidence Scoring
+
+The grounding check doesn't just pass/fail internally — its 0–100 score
+(citation match + content-word overlap ratio, thresholded at 80/50 into
+low/medium/high risk) is surfaced as a first-class field on the agent's
+output, not just logged:
+
+- `new_question()` includes `confidence_score` in the display payload (the
+  grounding score of the question that was ultimately accepted).
+- `submit_answer()` includes `feedback_confidence_score` — the grounding
+  score of the LLM-drafted feedback, or the question's own confidence score
+  if that draft was rejected and the stored explanation was used instead.
+- `FAAAgent.last_attempts_used` / `last_confidence_score` expose the same
+  numbers programmatically, which is what `evaluation.py` reads to build
+  the quantitative report described below.
+
+A user (or a grader) can see, per question, not just an answer but *how
+confidently grounded* that answer is — and the CLI prints both scores
+alongside every question and every feedback message.
 
 ## Logging and Error Handling
 
@@ -92,7 +110,22 @@ attempt.
 
 - **Keyword-overlap retrieval and grounding**, not embeddings or semantic
   similarity. Both can be fooled by paraphrases that reuse few of the same
-  words, or pass content that overlaps in wording but not in meaning.
+  words, or pass content that overlaps in wording but not in meaning. This
+  is not hypothetical: building the evaluation harness below surfaced a real
+  instance of it. An early adversarial test fixture — a fabricated weather
+  rule about "avoiding flying within 20 minutes of a full moon" — scored a
+  *passing* grounding confidence of 100 despite being nonsense, because
+  incidental shared words ("aircraft", "avoid", "pilots" — genuinely present
+  in the retrieved weather text, just in an unrelated sentence about
+  collision avoidance) pushed the raw overlap ratio above threshold.
+  `reliability/grounding_checker.py` now filters common English function
+  words (`STOPWORDS`) before computing overlap, which fixes *that*
+  incidental-overlap failure mode, but content-word overlap is still not
+  semantic entailment: a fabricated claim built from genuinely
+  domain-relevant nouns can still slip through. The evaluation harness's
+  adversarial fixture was changed to a mismatched-citation case instead,
+  since citation matching is the more reliable of the two grounding
+  signals — see `evaluation.py`'s `OFFLINE_FIXTURES["weather"]`.
 - **Small, hand-curated knowledge base.** Four documents covering four
   topics is enough to demonstrate the architecture, not the full breadth of
   the real Part 107 knowledge-test content areas (e.g., loading and
@@ -110,10 +143,51 @@ attempt.
 
 ## Evaluation
 
-`tests/test_schema_validator.py` and `tests/test_grounding_checker.py` are
-unit tests against hand-built inputs (valid, malformed, and hallucinated
-cases) for the two validation layers. `tests/test_agent_workflow.py` is an
-end-to-end test of both flows using `llm_client.MockClient` (queued canned
-responses) and a stub knowledge base, so the full retry/validation loop can
-be exercised without a live API key — including the case where the first
-LLM draft is invalid and the agent must retry.
+Two layers of quantitative evidence, not just a demo that happens to run.
+
+### Automated tests (`pytest tests/` — 21 tests)
+
+- `test_schema_validator.py` / `test_grounding_checker.py` — unit tests
+  against hand-built inputs (valid, malformed, wrong-citation, and
+  hallucinated cases) for the two validation layers.
+- `test_agent_workflow.py` — end-to-end tests of both flows via
+  `llm_client.MockClient` and a stub knowledge base: first-attempt success,
+  retry-after-invalid-JSON, exhausting all attempts on bad output, correct
+  and incorrect answer submission, the no-active-question error path, and
+  the case where LLM-drafted feedback fails grounding and the agent falls
+  back to the question's own (already-grounded) explanation. Each asserts
+  the exact `confidence_score` / `feedback_confidence_score` /
+  `last_attempts_used` values, not just "no error was raised."
+- `test_evaluation.py` — a regression test asserting retrieval hit rate is
+  100% against the real `docs/` folder (not a stub), so a future doc edit or
+  `TOPIC_QUERIES` change that breaks topic routing fails CI, not just a
+  manual eyeball.
+
+### Quantitative report (`evaluation.py`)
+
+Run `python evaluation.py` to produce `eval_results.json` and
+`EVALUATION_RESULTS.md` — a structured, versioned snapshot of two
+measurements:
+
+1. **Retrieval evaluation** — for each of the four topics, does
+   `retrieve_by_topic()` return chunks from the expected source document?
+   No LLM call; fully deterministic; always runs. Current result: **100%
+   hit rate** (4/4).
+2. **Generation reliability evaluation** — run `new_question()` for every
+   topic through the full agent pipeline, recording success, confidence
+   score, and attempts used. By default this runs against
+   `OFFLINE_FIXTURES` — a fixed, recorded set of LLM responses, so the
+   report is reproducible without an API key (`python evaluation.py --live`
+   additionally exercises the real Gemini API, one question per topic, if
+   `GEMINI_API_KEY` is set). The `weather` fixture is deliberately
+   adversarial — its recorded first response fails schema validation, its
+   second passes schema but cites an unretrieved document, and only its
+   third is accepted — specifically to prove the retry loop and both
+   validation layers reject bad output rather than the report being
+   trivially "everything passed first try." Current result: **100% success
+   rate, 100/100 average confidence on accepted questions**, with `weather`
+   correctly taking 3 attempts and every other topic taking 1.
+
+`EVALUATION_RESULTS.md` is committed as the current snapshot; re-run
+`evaluation.py` after any change to `docs/`, `retrieval.py`, the prompts, or
+`reliability/grounding_checker.py` to refresh it.
