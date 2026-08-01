@@ -20,9 +20,10 @@ class GenerationFailedError(AgentError):
     """Raised when the agent could not produce a validated, grounded result
     within the allowed number of attempts."""
 
-    def __init__(self, message, last_errors=None):
+    def __init__(self, message, last_errors=None, attempts_used=None):
         super().__init__(message)
         self.last_errors = last_errors or []
+        self.attempts_used = attempts_used
 
 
 class NoActiveQuestionError(AgentError):

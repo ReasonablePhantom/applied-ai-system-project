@@ -62,26 +62,44 @@ class FAAAgent:
         self.session = session_store or SessionStore()
         self.max_attempts = max_generation_attempts
 
+        # Telemetry from the most recent new_question() call, for callers
+        # (the evaluation harness in evaluation.py, tests, or a future UI)
+        # that want more than the display dict without re-deriving it.
+        self.last_attempts_used = None
+        self.last_confidence_score = None
+
     def new_question(self, topic="operations"):
-        """Flow A. Returns a display-safe dict on success, or {"error": ...,
-        "last_errors": [...]} on failure — never raises."""
+        """Flow A. Returns a display-safe dict on success (including a
+        confidence_score derived from the grounding check), or
+        {"error": ..., "last_errors": [...]} on failure — never raises."""
         try:
-            question, retrieved = self._generate_question(topic)
+            question, retrieved, confidence_score, attempts = self._generate_question(topic)
         except RetrievalError as e:
             logger.warning("new_question(topic=%r): %s", topic, e)
+            self.last_attempts_used = 0
+            self.last_confidence_score = None
             return {"error": str(e)}
         except GenerationFailedError as e:
             logger.warning("new_question(topic=%r): %s (reasons=%s)", topic, e, e.last_errors)
+            self.last_attempts_used = e.attempts_used
+            self.last_confidence_score = None
             return {"error": str(e), "last_errors": e.last_errors}
 
         self.session.store_question(question, retrieved)
-        logger.info("new_question(topic=%r): stored a validated, grounded question", topic)
-        return self._format_question_for_display(question)
+        self.last_attempts_used = attempts
+        self.last_confidence_score = confidence_score
+        logger.info(
+            "new_question(topic=%r): stored a validated, grounded question "
+            "(confidence_score=%d, attempts=%d)",
+            topic, confidence_score, attempts,
+        )
+        return self._format_question_for_display(question, confidence_score)
 
     def _generate_question(self, topic):
         """Retrieval -> Question Generator -> Schema Validator -> Reliability
         Checker, looping until a grounded question is produced or attempts
-        run out. Raises RetrievalError / GenerationFailedError on failure."""
+        run out. Raises RetrievalError / GenerationFailedError on failure.
+        Returns (question, retrieved, confidence_score, attempts_used)."""
         retrieved = self.kb.retrieve_by_topic(topic)
         if not retrieved:
             raise RetrievalError(f"No reference material found for topic '{topic}'.")
@@ -114,18 +132,19 @@ class FAAAgent:
             grounding = check_question_grounding(question, retrieved)
             if grounding["needs_regeneration"]:
                 logger.debug(
-                    "new_question attempt %d/%d: grounding failed: %s",
-                    attempt, self.max_attempts, grounding["reasons"],
+                    "new_question attempt %d/%d: grounding failed (score=%d): %s",
+                    attempt, self.max_attempts, grounding["score"], grounding["reasons"],
                 )
                 last_errors = grounding["reasons"]
                 continue
 
-            return question, retrieved
+            return question, retrieved, grounding["score"], attempt
 
         raise GenerationFailedError(
             f"Could not generate a reliably grounded question about "
             f"'{topic}' after {self.max_attempts} attempts.",
             last_errors=last_errors,
+            attempts_used=self.max_attempts,
         )
 
     def submit_answer(self, user_choice):
@@ -145,19 +164,31 @@ class FAAAgent:
         feedback = self._generate_feedback(question, choice, retrieved)
 
         grounding = check_feedback_grounding(feedback, retrieved)
+        feedback_confidence = grounding["score"]
         if grounding["needs_regeneration"]:
             # Fall back to the question's own explanation, which already
             # passed grounding validation when the question was generated.
-            logger.debug("submit_answer: feedback failed grounding (%s); using stored explanation", grounding["reasons"])
+            logger.debug(
+                "submit_answer: feedback failed grounding (score=%d, reasons=%s); using stored explanation",
+                grounding["score"], grounding["reasons"],
+            )
             feedback = question["explanation"]
+            # The stored explanation already passed the question's own
+            # grounding check at generation time; that score is a truer
+            # reflection of this feedback's confidence than the rejected draft's.
+            feedback_confidence = self.last_confidence_score
 
         self.session.record_answer(choice, is_correct)
-        logger.info("submit_answer: choice=%s correct=%s", choice, is_correct)
+        logger.info(
+            "submit_answer: choice=%s correct=%s feedback_confidence=%s",
+            choice, is_correct, feedback_confidence,
+        )
 
         return {
             "correct": is_correct,
             "correct_answer": correct_answer,
             "feedback": feedback,
+            "feedback_confidence_score": feedback_confidence,
             "citation": question["citation"],
             "score": self.session.get_score_summary(),
         }
@@ -187,9 +218,10 @@ class FAAAgent:
         return feedback_obj.get("feedback", question["explanation"])
 
     @staticmethod
-    def _format_question_for_display(question):
+    def _format_question_for_display(question, confidence_score):
         """Withhold the correct answer and explanation until the user answers."""
         return {
             "question": question["question"],
             "choices": question["choices"],
+            "confidence_score": confidence_score,
         }

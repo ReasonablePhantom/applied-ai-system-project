@@ -32,6 +32,7 @@ def print_question(result):
     print(f"\n{result['question']}")
     for key in ("A", "B", "C", "D"):
         print(f"  {key}. {result['choices'][key]}")
+    print(f"(grounding confidence: {result['confidence_score']}/100)")
 
 
 def print_feedback(result):
@@ -42,6 +43,7 @@ def print_feedback(result):
     print(f"\n{verdict} The correct answer is {result['correct_answer']}.")
     print(result["feedback"])
     print(f"Source: {result['citation']}")
+    print(f"(feedback grounding confidence: {result['feedback_confidence_score']}/100)")
     print(f"Score: {result['score']}")
 
 
