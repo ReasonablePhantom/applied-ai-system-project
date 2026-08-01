@@ -37,6 +37,18 @@ against `llm_client.MockClient` instead of a live model:
 pytest tests/ -q
 ```
 
+## Evaluate
+
+Produces a quantitative, structured report (retrieval hit rate + generation
+reliability, confidence scores, attempts used) — see
+[model_card.md](model_card.md) § Evaluation for what it measures and why.
+No API key needed by default (runs against recorded fixture responses):
+
+```bash
+python evaluation.py            # writes eval_results.json + EVALUATION_RESULTS.md
+python evaluation.py --live     # also exercises the real Gemini API (needs GEMINI_API_KEY)
+```
+
 ## Project layout
 
 | Path | Role |
@@ -45,10 +57,12 @@ pytest tests/ -q
 | `retrieval.py` | Chunking + keyword retrieval over `docs/` |
 | `llm_client.py` | `GeminiClient` (real) / `MockClient` (for tests) |
 | `schema_validator.py` | Structural check on generated questions |
-| `reliability/grounding_checker.py` | Checks LLM output is actually grounded in retrieved text |
-| `faa_agent.py` | Orchestrator: routes `new_question` / `submit_answer`, retries on validation/grounding failure |
+| `reliability/grounding_checker.py` | Checks LLM output is actually grounded in retrieved text; scores confidence 0-100 |
+| `faa_agent.py` | Orchestrator: routes `new_question` / `submit_answer`, retries on validation/grounding failure, surfaces confidence scores |
 | `session_store.py` | In-memory current question + score |
 | `prompts/` | System/user prompt templates |
 | `main.py` | CLI entry point |
 | `errors.py` | Typed exceptions used internally by the agent |
 | `logging_config.py` | Console + file logging setup |
+| `evaluation.py` | Quantitative retrieval + generation-reliability evaluation harness |
+| `EVALUATION_RESULTS.md` / `eval_results.json` | Latest evaluation snapshot (Markdown table + JSON) |
