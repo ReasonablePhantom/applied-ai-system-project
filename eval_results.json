@@ -1,0 +1,83 @@
+{
+  "generated_at": "2026-08-01T00:06:14",
+  "retrieval_evaluation": {
+    "hit_rate": 1.0,
+    "results": [
+      {
+        "topic": "airspace",
+        "expected_source": "AIRSPACE.md",
+        "retrieved_sources": [
+          "AIRSPACE.md",
+          "AIRSPACE.md",
+          "AIRSPACE.md"
+        ],
+        "hit": true
+      },
+      {
+        "topic": "weather",
+        "expected_source": "WEATHER.md",
+        "retrieved_sources": [
+          "WEATHER.md",
+          "WEATHER.md",
+          "WEATHER.md"
+        ],
+        "hit": true
+      },
+      {
+        "topic": "operations",
+        "expected_source": "OPERATIONS.md",
+        "retrieved_sources": [
+          "OPERATIONS.md",
+          "OPERATIONS.md",
+          "OPERATIONS.md"
+        ],
+        "hit": true
+      },
+      {
+        "topic": "certification",
+        "expected_source": "CERTIFICATION_AND_REGISTRATION.md",
+        "retrieved_sources": [
+          "CERTIFICATION_AND_REGISTRATION.md",
+          "CERTIFICATION_AND_REGISTRATION.md",
+          "CERTIFICATION_AND_REGISTRATION.md"
+        ],
+        "hit": true
+      }
+    ]
+  },
+  "generation_evaluation": {
+    "mode": "offline fixtures",
+    "success_rate": 1.0,
+    "average_confidence_score": 100.0,
+    "results": [
+      {
+        "topic": "airspace",
+        "success": true,
+        "confidence_score": 100,
+        "attempts_used": 1,
+        "error": null
+      },
+      {
+        "topic": "weather",
+        "success": true,
+        "confidence_score": 100,
+        "attempts_used": 3,
+        "error": null
+      },
+      {
+        "topic": "operations",
+        "success": true,
+        "confidence_score": 100,
+        "attempts_used": 1,
+        "error": null
+      },
+      {
+        "topic": "certification",
+        "success": true,
+        "confidence_score": 100,
+        "attempts_used": 1,
+        "error": null
+      }
+    ]
+  }
+}
