@@ -46,6 +46,10 @@ VALID_FEEDBACK_JSON = json.dumps(
     }
 )
 
+HALLUCINATED_FEEDBACK_JSON = json.dumps(
+    {"feedback": "Drones must always carry a spare battery and a fire extinguisher."}
+)
+
 
 class StubKnowledgeBase:
     """Deterministic stand-in for retrieval.KnowledgeBase in agent tests."""
@@ -75,6 +79,12 @@ def test_new_question_success_on_first_attempt():
     assert "explanation" not in result
     assert agent.session.has_active_question()
 
+    # The explanation is verbatim from the retrieved chunk, so grounding
+    # should score it at full confidence.
+    assert result["confidence_score"] == 100
+    assert agent.last_confidence_score == 100
+    assert agent.last_attempts_used == 1
+
 
 def test_new_question_retries_after_invalid_json_then_succeeds():
     agent = make_agent([INVALID_QUESTION_JSON, VALID_QUESTION_JSON])
@@ -82,6 +92,8 @@ def test_new_question_retries_after_invalid_json_then_succeeds():
 
     assert "error" not in result
     assert agent.session.has_active_question()
+    # Proves the retry loop actually re-tries rather than accepting attempt 1.
+    assert agent.last_attempts_used == 2
 
 
 def test_new_question_fails_after_max_attempts_of_bad_output():
@@ -90,6 +102,8 @@ def test_new_question_fails_after_max_attempts_of_bad_output():
 
     assert "error" in result
     assert not agent.session.has_active_question()
+    assert agent.last_attempts_used == 3
+    assert agent.last_confidence_score is None
 
 
 def test_submit_correct_answer():
@@ -101,6 +115,7 @@ def test_submit_correct_answer():
     assert result["correct_answer"] == "A"
     assert result["citation"] == "OPERATIONS.md"
     assert "400 feet" in result["feedback"]
+    assert result["feedback_confidence_score"] == 100
     assert not agent.session.has_active_question()
 
 
@@ -118,3 +133,18 @@ def test_submit_answer_without_active_question_errors():
     result = agent.submit_answer("a")
 
     assert "error" in result
+
+
+def test_submit_answer_falls_back_to_stored_explanation_when_feedback_ungrounded():
+    agent = make_agent([VALID_QUESTION_JSON, HALLUCINATED_FEEDBACK_JSON])
+    agent.new_question("operations")
+    result = agent.submit_answer("a")
+
+    assert result["correct"] is True
+    # Hallucinated feedback must be discarded in favor of the question's own,
+    # already-grounded explanation.
+    assert "fire extinguisher" not in result["feedback"]
+    assert "400 feet" in result["feedback"]
+    # Confidence falls back to the question's own (already-passed) score,
+    # rather than reporting a score for the rejected draft.
+    assert result["feedback_confidence_score"] == 100
