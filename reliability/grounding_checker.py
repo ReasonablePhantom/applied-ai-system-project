@@ -7,9 +7,28 @@ function that returns a score, a risk level, and human-readable reasons.
 
 import re
 
+# Common English function words, excluded from overlap scoring. Without
+# this, a sentence built almost entirely of generic connectors ("must",
+# "the", "a", "of", "and", "within") can rack up enough incidental overlap
+# with *any* reference text to clear the ratio threshold even when every
+# substantive claim in it is fabricated. Filtering these out means the
+# ratio actually measures overlap in *content* words - the words that carry
+# the claim being checked.
+STOPWORDS = {
+    "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "but",
+    "is", "are", "was", "were", "be", "been", "being", "must", "may", "can",
+    "could", "should", "would", "will", "shall", "not", "no", "do", "does",
+    "did", "has", "have", "had", "this", "that", "these", "those", "it",
+    "its", "as", "by", "with", "from", "under", "over", "within", "without",
+    "if", "than", "then", "so", "such", "also", "other", "all", "any",
+    "some", "more", "most", "into", "out", "up", "down", "about", "there",
+    "their", "they", "you", "your", "we", "our",
+}
+
 
 def _tokenize(text):
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
+    words = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return words - STOPWORDS
 
 
 def _overlap_ratio(text, context_words):
