@@ -110,22 +110,11 @@ attempt.
 
 - **Keyword-overlap retrieval and grounding**, not embeddings or semantic
   similarity. Both can be fooled by paraphrases that reuse few of the same
-  words, or pass content that overlaps in wording but not in meaning. This
-  is not hypothetical: building the evaluation harness below surfaced a real
-  instance of it. An early adversarial test fixture — a fabricated weather
-  rule about "avoiding flying within 20 minutes of a full moon" — scored a
-  *passing* grounding confidence of 100 despite being nonsense, because
-  incidental shared words ("aircraft", "avoid", "pilots" — genuinely present
-  in the retrieved weather text, just in an unrelated sentence about
-  collision avoidance) pushed the raw overlap ratio above threshold.
-  `reliability/grounding_checker.py` now filters common English function
-  words (`STOPWORDS`) before computing overlap, which fixes *that*
-  incidental-overlap failure mode, but content-word overlap is still not
-  semantic entailment: a fabricated claim built from genuinely
-  domain-relevant nouns can still slip through. The evaluation harness's
-  adversarial fixture was changed to a mismatched-citation case instead,
-  since citation matching is the more reliable of the two grounding
-  signals — see `evaluation.py`'s `OFFLINE_FIXTURES["weather"]`.
+  words, or content that overlaps in wording but not in meaning. Even after
+  the stopword fix (see "Unexpected Findings During Testing" below), a
+  fabricated claim built from genuinely domain-relevant nouns could still
+  slip through — content-word overlap is a proxy for groundedness, not a
+  guarantee of it.
 - **Small, hand-curated knowledge base.** Four documents covering four
   topics is enough to demonstrate the architecture, not the full breadth of
   the real Part 107 knowledge-test content areas (e.g., loading and
@@ -140,6 +129,63 @@ attempt.
   `logs/agent.log` to tell the two apart.
 - **No persistence across runs.** `session_store.py` is in-memory only —
   score history resets each time the program restarts.
+
+## Biases
+
+- **Knowledge-base topic coverage bias.** The four hand-written reference
+  docs were chosen (and written) by the developer, not sourced verbatim
+  from the FAA. They emphasize the topics that felt most demonstrable for
+  this project (airspace, weather, operating rules, certification) and
+  entirely omit other real Part 107 knowledge-test areas — loading and
+  performance, radio communication procedures, airport operations,
+  aeronautical decision-making. A user who only studies with this tool will
+  develop uneven topic coverage that does not reflect the real exam's
+  weighting.
+- **Paraphrase bias in the reference docs themselves.** The docs are the
+  developer's (Claude's) summary of 14 CFR Part 107 content, not the
+  regulation text or FAA-published study material verbatim. Any
+  simplification, omission, or subtly imprecise paraphrase in
+  `docs/*.md` becomes the "ground truth" the grounding checker validates
+  against — the reliability layer proves output is *consistent with the
+  knowledge base*, not that the knowledge base is itself a complete or
+  perfectly accurate restatement of the regulation.
+- **LLM phrasing and distractor bias.** Gemini generates the question
+  stems, distractor choices, and explanations. Its own training data and
+  tendencies shape which distractors it picks (e.g., favoring
+  numerically-close wrong answers) and how it phrases explanations — this
+  is standard LLM behavior, not something this project's validation layer
+  is designed to detect or correct, since schema validation and grounding
+  checks assess structure and source-consistency, not stylistic or
+  pedagogical quality.
+- **English-only.** Retrieval, prompts, and generation all assume English
+  input and output; there is no accommodation for non-native English
+  speakers, who make up a real share of Part 107 test-takers.
+
+## Misuse Prevention Measures
+
+- **Explicit "study aid, not authoritative source" framing**, stated in
+  Overview and Knowledge Source above and repeated in the README — the
+  system does not claim to replace the FAA's own materials or guarantee
+  exam readiness.
+- **Bounded retry cost.** `max_generation_attempts` (default 3) caps how
+  many LLM calls a single question or feedback request can trigger,
+  preventing an unbounded retry loop from silently running up API cost
+  under adversarial or degenerate input.
+- **No credential or PII collection.** The CLI takes no login, name, or
+  personal data — session state (current question, score) is in-memory
+  only and never written to disk or transmitted anywhere beyond the Gemini
+  API call itself.
+- **API key never leaves local config.** `GEMINI_API_KEY` is read from a
+  local `.env` (gitignored) and used only for direct Gemini API calls; nothing
+  in this codebase logs, echoes, or transmits it elsewhere.
+- **Not designed for untrusted multi-user deployment.** This is a
+  single-user local CLI. It has no authentication, no per-user rate
+  limiting, and no output moderation beyond the domain-specific grounding
+  check — deploying it as a public-facing service without adding those
+  would be a misuse of the current design, not a supported use case.
+- **Not a substitute for the proctored exam.** The tool is for offline
+  practice only; it has no integration with, and is not intended for use
+  during, an actual FAA knowledge test session.
 
 ## Evaluation
 
@@ -191,3 +237,48 @@ measurements:
 `EVALUATION_RESULTS.md` is committed as the current snapshot; re-run
 `evaluation.py` after any change to `docs/`, `retrieval.py`, the prompts, or
 `reliability/grounding_checker.py` to refresh it.
+
+## Unexpected Findings During Testing
+
+Building the adversarial fixture for `evaluation.py`'s `weather` topic
+surfaced a real gap in the reliability layer, not a hypothetical one.
+
+**What was expected:** a recorded LLM response containing a fabricated
+weather rule ("pilots must keep the aircraft under 2 pounds and avoid
+flying within 20 minutes of a full moon") would fail the grounding check,
+demonstrating that the check catches hallucinated content.
+
+**What actually happened:** it passed, with a grounding confidence score of
+100/100 — the fabricated explanation was accepted as if it were fully
+supported by the retrieved weather reference text.
+
+**Root cause:** the grounding check's overlap ratio was computed over *all*
+matching words, including common English function words ("a", "the", "of",
+"and", "must", "within"). A sentence built mostly of such words plus a
+handful of incidentally domain-relevant nouns — "aircraft" and "avoid" both
+happen to appear in the real retrieved text, in an entirely unrelated
+sentence about collision avoidance ("...can see and avoid, other
+aircraft...") — accumulated enough raw overlap to clear the 25% threshold,
+regardless of whether the *specific claim* being made was true.
+
+**Why this matters:** it's a concrete demonstration that a reliability
+check can look correct in every unit test written *for* it (see
+`tests/test_grounding_checker.py`, which used hand-picked hallucinated text
+that happened to share little vocabulary with the source) while still
+failing on adversarial input designed specifically to probe it. Hand-picked
+test cases and adversarial test cases can disagree, and only the latter
+caught this.
+
+**Fix:** `reliability/grounding_checker.py` now filters common English
+function words (a hardcoded `STOPWORDS` set) before computing the overlap
+ratio, so the score reflects overlap in *content* words rather than
+incidental sentence structure. The evaluation harness's adversarial fixture
+was also changed to a mismatched-citation case (a fake source attribution),
+since citation matching is deterministic and doesn't share this weakness —
+see `evaluation.py`'s `OFFLINE_FIXTURES["weather"]` and the commit that
+introduced the fix.
+
+**What this doesn't fix:** as noted in Known Limitations above, a fabricated
+claim built entirely from genuinely domain-relevant content words (not just
+function words) could still pass. The stopword fix closes the specific gap
+that was found; it does not make the grounding check semantic.
