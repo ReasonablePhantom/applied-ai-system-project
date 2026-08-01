@@ -1,0 +1,8 @@
+Topic: {{TOPIC}}
+
+Reference material (this is the ONLY source you may use):
+---
+{{CONTEXT}}
+---
+
+Generate one multiple-choice question about this topic, grounded entirely in the reference material above.

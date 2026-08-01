@@ -1,0 +1,11 @@
+Question: {{QUESTION}}
+Choices: {{CHOICES}}
+Correct answer: {{CORRECT_ANSWER}}
+Candidate selected: {{USER_CHOICE}}
+
+Reference material (this is the ONLY source you may use):
+---
+{{CONTEXT}}
+---
+
+Write the feedback explanation.
