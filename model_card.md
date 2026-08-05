@@ -183,6 +183,18 @@ attempt.
   limiting, and no output moderation beyond the domain-specific grounding
   check — deploying it as a public-facing service without adding those
   would be a misuse of the current design, not a supported use case.
+- **The web UI (`webapp.py`) is a local single-process demo, not a
+  hardened multi-user service.** It extends the same single-user-oriented
+  design to a browser: it binds to `127.0.0.1` only (not reachable over
+  the network), has no authentication, no CSRF protection, and no session
+  expiry or memory cap — each new browser session's `FAAAgent` stays in
+  memory for the life of the process. The per-session Flask cookie
+  isolates one browser tab's question/score from another's *on the same
+  machine*, which is a UX convenience for one person using multiple tabs,
+  not a security boundary between untrusted users; this interface should
+  not be exposed beyond localhost without adding the authentication,
+  rate-limiting, and session-management hardening that is explicitly out
+  of scope here.
 - **Not a substitute for the proctored exam.** The tool is for offline
   practice only; it has no integration with, and is not intended for use
   during, an actual FAA knowledge test session.
@@ -191,7 +203,7 @@ attempt.
 
 Two layers of quantitative evidence, not just a demo that happens to run.
 
-### Automated tests (`pytest tests/` — 21 tests)
+### Automated tests (`pytest tests/` — 28 tests)
 
 - `test_schema_validator.py` / `test_grounding_checker.py` — unit tests
   against hand-built inputs (valid, malformed, wrong-citation, and
@@ -208,6 +220,15 @@ Two layers of quantitative evidence, not just a demo that happens to run.
   100% against the real `docs/` folder (not a stub), so a future doc edit or
   `TOPIC_QUERIES` change that breaks topic routing fails CI, not just a
   manual eyeball.
+- `test_webapp.py` — the same reliability contract exercised over HTTP via
+  Flask's test client: the full new-question/submit-answer/score round
+  trip, two simulated browser sessions proving per-session isolation (each
+  gets its own `FAAAgent`), the no-reference-material and
+  no-active-question domain errors returning a handled 200 rather than a
+  crash, a malformed `choice` value rejected with a 400 before it can burn
+  an LLM call, and a genuinely unexpected exception (from a deliberately
+  broken knowledge base) returning a 500 via the global error handler
+  rather than an unhandled stack trace.
 
 ### Quantitative report (`evaluation.py`)
 

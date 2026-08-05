@@ -121,6 +121,30 @@ Type `help` at the `>` prompt for the command list (`new [topic]`,
 `a`/`b`/`c`/`d` to answer, `score`, `quit`). Logs are written to the console
 (INFO+) and to `logs/agent.log` (DEBUG+, created on first run).
 
+## Web UI
+
+A browser-based alternative to the CLI, reusing the exact same `FAAAgent` /
+`KnowledgeBase` / `GeminiClient` backend — **for local, single-machine use
+only** (see [model_card.md](model_card.md)'s Misuse Prevention Measures:
+this is not hardened for multi-user or public deployment).
+
+Requires the same `.env` / `GEMINI_API_KEY` setup as the CLI (see Setup
+above) — no extra configuration.
+
+```bash
+python webapp.py
+```
+
+Then open http://127.0.0.1:5000/ in a browser. `python webapp.py` fails
+fast with the same `[fatal] ...` message as `main.py` if `GEMINI_API_KEY`
+isn't set.
+
+Pick a topic, click **New Question**, choose an answer, and see grounded
+feedback plus a running score. Each browser tab gets its own independent
+question/score (backed by its own `FAAAgent`/`SessionStore` server-side) —
+opening a second tab doesn't affect the first — while both share the same
+retrieval index and Gemini client underneath.
+
 ## Example Runs
 
 The transcripts below are **real, executed output** — captured by actually
@@ -167,7 +191,7 @@ Score: 1/1 correct (100%)
 
 ## Test
 
-No API key is required — the test suite (21 tests) exercises the full agent
+No API key is required — the test suite (28 tests) exercises the full agent
 loop against `llm_client.MockClient` instead of a live model:
 
 ```bash
@@ -188,11 +212,14 @@ python evaluation.py --live     # also exercises the real Gemini API (needs GEMI
 
 ## Testing Summary
 
-- **21 automated tests, all passing** — unit tests for the schema validator
+- **28 automated tests, all passing** — unit tests for the schema validator
   and grounding checker (valid, malformed, wrong-citation, and hallucinated
   cases), end-to-end agent-workflow tests via `MockClient` (including a
-  retry-after-failure case and a feedback-fallback case), and a retrieval
-  regression test against the real `docs/` folder.
+  retry-after-failure case and a feedback-fallback case), a retrieval
+  regression test against the real `docs/` folder, and 7 Flask route tests
+  for the web UI (including session isolation between two browser tabs, an
+  invalid-choice 400, and an unexpected-exception 500 via the global error
+  handler).
 - **Evaluation snapshot** (`EVALUATION_RESULTS.md`): 100% retrieval hit rate
   (4/4 topics routed to their expected source document), 100% generation
   success rate with 100/100 average confidence on accepted questions, and
@@ -249,6 +276,9 @@ python evaluation.py --live     # also exercises the real Gemini API (needs GEMI
 | `session_store.py` | In-memory current question + score |
 | `prompts/` | System/user prompt templates |
 | `main.py` | CLI entry point |
+| `webapp.py` | Flask web UI entry point (app factory + routes); local-only alternative to `main.py` |
+| `templates/index.html` | Web UI page shell |
+| `static/style.css` / `static/app.js` | Web UI styling and vanilla-JS fetch logic |
 | `errors.py` | Typed exceptions used internally by the agent |
 | `logging_config.py` | Console + file logging setup |
 | `evaluation.py` | Quantitative retrieval + generation-reliability evaluation harness |
