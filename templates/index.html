@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FAA Part 107 Exam Prep Agent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>FAA Part 107 Exam Prep Agent</h1>
+    <p class="subtitle">
+      Practice questions grounded in retrieved Part 107 reference text —
+      not a substitute for the FAA's own study materials.
+    </p>
+
+    <section id="topic-picker">
+      <label for="topic-select">Topic:</label>
+      <select id="topic-select">
+        {% for t in topics %}
+        <option value="{{ t }}">{{ t.title() }}</option>
+        {% endfor %}
+      </select>
+      <button id="new-question-btn">New Question</button>
+      <span id="score-panel"><span id="score-text">Score: 0/0 correct (0%)</span></span>
+    </section>
+
+    <section id="error-panel" hidden>
+      <p id="error-message"></p>
+      <ul id="error-details"></ul>
+    </section>
+
+    <section id="question-panel" hidden>
+      <h2 id="question-text"></h2>
+      <div id="choices">
+        <button class="choice-btn" data-choice="A"></button>
+        <button class="choice-btn" data-choice="B"></button>
+        <button class="choice-btn" data-choice="C"></button>
+        <button class="choice-btn" data-choice="D"></button>
+      </div>
+      <p class="confidence"><span id="confidence-badge"></span></p>
+      <p id="pending-hint" class="hint" hidden>A question is in progress — click New Question to continue.</p>
+    </section>
+
+    <section id="feedback-panel" hidden>
+      <p id="verdict"></p>
+      <p id="feedback-text"></p>
+      <p id="citation"></p>
+      <p class="confidence"><span id="feedback-confidence-badge"></span></p>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
